@@ -1,88 +1,40 @@
 param($Context)
 
-try { 
-  New-Item 'Cache_DomainAnalyser' -ItemType Directory -ErrorAction SilentlyContinue
-  New-Item 'Cache_DomainAnalyser\CurrentlyRunning.txt' -ItemType File -Force
+try {
 
-  $DomainTable = Get-CippTable -Table Domains
-  $TenantDomains = Invoke-ActivityFunction -FunctionName 'DomainAnalyser_GetTenantDomains' -Input 'Tenants'
+    $DurableRetryOptions = @{
+        FirstRetryInterval  = (New-TimeSpan -Seconds 5)
+        MaxNumberOfAttempts = 1
+        BackoffCoefficient  = 2
+    }
+    $RetryOptions = New-DurableRetryOptions @DurableRetryOptions
 
-  # Process tenant domain results
-  foreach ($Tenant in $TenantDomains) {
-    $TenantDetails = $Tenant | ConvertTo-Json
+    # Sync tenants
+    try {
+        Invoke-ActivityFunction -FunctionName 'DomainAnalyser_GetTenantDomains' -Input 'Tenants'
+    } catch { Write-Host "EXCEPTION: TenantDomains $($_.Exception.Message)" }
 
-    $MigratePartitionKey = @{
-      Table        = $DomainTable
-      PartitionKey = $Tenant.Tenant
-      RowKey       = $Tenant.Domain
+    # Get list of all domains to process
+    $Batch = Invoke-ActivityFunction -FunctionName 'Activity_GetAllTableRows' -Input 'Domains'
+
+    $ParallelTasks = foreach ($Item in $Batch) {
+        Invoke-DurableActivity -FunctionName 'DomainAnalyser_All' -Input $item -NoWait -RetryOptions $RetryOptions
     }
 
-    $OldDomain = Get-AzTableRow @MigratePartitionKey
+    # Collect activity function results and send to database
+    $TableParams = Get-CippTable -tablename 'Domains'
+    $TableParams.Entity = Wait-ActivityFunction -Task $ParallelTasks
+    $TableParams.Force = $true
+    $TableParams = $TableParams | ConvertTo-Json -Compress
 
-    if ($OldDomain) {
-      $OldDomain | Remove-AzTableRow -Table $DomainTable
+    try {
+        Invoke-ActivityFunction -FunctionName 'Activity_AddOrUpdateTableRows' -Input $TableParams
+    } catch {
+        Write-Host "Orchestrator exception UpdateDomains $($_.Exception.Message)"
     }
-
-    $ExistingDomain = @{
-      Table        = $DomainTable
-      PartitionKey = 'TenantDomains'
-      RowKey       = $Tenant.Domain
-    }
-    $Domain = Get-AzTableRow @ExistingDomain
-
-    if (!$Domain) {
-      $DomainObject = @{
-        Table        = $DomainTable
-        rowKey       = $Tenant.Domain
-        partitionKey = 'TenantDomains'
-        property     = @{
-          DomainAnalyser = ''
-          TenantDetails  = $TenantDetails
-          TenantId       = $Tenant.Tenant
-          DkimSelectors  = ''
-          MailProviders  = ''
-        }
-      }
-
-      if ($OldDomain) {
-        $DomainObject.property.DkimSelectors = $OldDomain.DkimSelectors
-        $DomainObject.property.MailProviders = $OldDomain.MailProviders
-      }
-      Add-AzTableRow @DomainObject | Out-Null
-    }
-    else {
-      $Domain.TenantDetails = $TenantDetails
-      if ($OldDomain) {
-        $Domain.DkimSelectors = $OldDomain.DkimSelectors
-        $Domain.MailProviders = $OldDomain.MailProviders
-      }
-      $Domain | Update-AzTableRow -Table $DomainTable | Out-Null
-    }
-  }
-
-  # Get list of all domains to process
-  $DomainParam = @{
-    Table = $DomainTable
-  }
-  
-  $Batch = Get-AzTableRow @DomainParam
-
-  $ParallelTasks = foreach ($Item in $Batch) {
-    Invoke-DurableActivity -FunctionName 'DomainAnalyser_All' -Input $item -NoWait
-  }
-
-  $Outputs = Wait-ActivityFunction -Task $ParallelTasks
-  Log-request -API 'DomainAnalyser' -message "Outputs found count = $($Outputs.count)" -sev Info
-
-  foreach ($DomainObject in $Outputs) {
-    [PSCustomObject]$DomainObject | Update-AzTableRow @DomainParam | Out-Null
-  }
-}
-catch {
-  Log-request -API 'DomainAnalyser' -message "Domain Analyser Orchestrator Error $($_.Exception.Message)" -sev info
-  Write-Host $_.Exception | ConvertTo-Json
-}
-finally {
-  Log-request -API 'DomainAnalyser' -message 'Domain Analyser has Finished' -sev Info
-  Remove-Item 'Cache_DomainAnalyser\CurrentlyRunning.txt' -Force
+} catch {
+    Write-LogMessage -API 'DomainAnalyser' -message "Domain Analyser Orchestrator Error $($_.Exception.Message)" -sev info
+    #Write-Host $_.Exception | ConvertTo-Json
+} finally {
+    Write-LogMessage -API 'DomainAnalyser' -message 'Domain Analyser has Finished' -sev Info
 }
