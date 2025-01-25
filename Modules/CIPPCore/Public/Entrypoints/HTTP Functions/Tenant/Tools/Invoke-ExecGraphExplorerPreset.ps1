@@ -3,7 +3,9 @@ using namespace System.Net
 Function Invoke-ExecGraphExplorerPreset {
     <#
     .FUNCTIONALITY
-    Entrypoint
+        Entrypoint
+    .ROLE
+        CIPP.Core.Read
     #>
     [CmdletBinding()]
     param($Request, $TriggerMetadata)
@@ -14,26 +16,29 @@ Function Invoke-ExecGraphExplorerPreset {
     $Username = ([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($request.headers.'x-ms-client-principal')) | ConvertFrom-Json).userDetails
     # Write to the Azure Functions log stream.
     Write-Host 'PowerShell HTTP trigger function processed a request.'
+    $Action = $Request.Body.Action ?? ''
 
-
-    switch ($Request.Body.Action) {
+    switch ($Action) {
         'Copy' {
-            $Id = (New-Guid).Guid
+            $Id = $Request.Body.preset.id ?  $Request.Body.preset.id: (New-Guid).Guid
         }
         'Save' {
-            $Id = $Request.Body.preset.reportTemplate.value
+            $Id = $Request.Body.preset.id
         }
         'Delete' {
-            $Id = $Request.Body.preset.reportTemplate.value
+            $Id = $Request.Body.preset.id
         }
         default {
-            $Request.Body.Action = 'Copy'
+            $Action = 'Copy'
             $Id = (New-Guid).Guid
         }
     }
 
     $params = $Request.Body.preset | Select-Object endpoint, '$filter', '$select', '$count', '$expand', '$search', NoPagination, '$top', IsShared
-    if ($params.'$select') { $params.'$select' = ($params.'$select').value -join ',' }
+
+    if ($params.'$select'.value) {
+        $params.'$select' = ($params.'$select').value -join ','
+    }
 
     $Preset = [PSCustomObject]@{
         PartitionKey = 'Preset'
@@ -48,20 +53,21 @@ Function Invoke-ExecGraphExplorerPreset {
     try {
         $Success = $false
         $Table = Get-CIPPTable -TableName 'GraphPresets'
-        $Message = '{0} preset succeeded' -f $Request.Body.Action
-        if ($Request.Body.Action -eq 'Copy') {
-            Add-CIPPAzDataTableEntity @Table -Entity $Preset
+        $Message = '{0} preset succeeded' -f $Action
+        if ($Action -eq 'Copy') {
+            Add-CIPPAzDataTableEntity @Table -Entity $Preset -Force
             $Success = $true
         } else {
             $Entity = Get-CIPPAzDataTableEntity @Table -Filter "RowKey eq '$Id'"
             if ($Entity.Owner -eq $Username ) {
-                if ($Request.Body.Action -eq 'Delete') {
-                    Remove-AzDataTableEntity @Table -Entity $Entity
-                } elseif ($Request.Body.Action -eq 'Save') {
+                if ($Action -eq 'Delete') {
+                    Remove-AzDataTableEntity -Force @Table -Entity $Entity
+                } elseif ($Action -eq 'Save') {
                     Add-CIPPAzDataTableEntity @Table -Entity $Preset -Force
                 }
                 $Success = $true
             } else {
+                Write-Host "username in table: $($Entity.Owner). Username in request: $Username"
                 $Message = 'Error: You can only modify your own presets.'
                 $Success = $false
             }

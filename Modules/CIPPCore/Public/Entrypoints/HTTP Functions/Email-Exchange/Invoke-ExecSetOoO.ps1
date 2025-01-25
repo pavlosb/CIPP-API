@@ -9,8 +9,8 @@ Function Invoke-ExecSetOoO {
     param($Request, $TriggerMetadata)
     try {
         $APIName = $TriggerMetadata.FunctionName
-        Write-LogMessage -user $request.headers.'x-ms-client-principal' -API $APINAME -message 'Accessed this API' -Sev 'Debug'
-        $Username = $request.body.user
+        Write-LogMessage -user $request.headers.'X-MS-CLIENT-PRINCIPAL' -API $APINAME -message 'Accessed this API' -Sev 'Debug'
+        $Username = $request.body.userId
         $Tenantfilter = $request.body.tenantfilter
         if ($Request.body.input) {
             $InternalMessage = $Request.body.input
@@ -19,14 +19,15 @@ Function Invoke-ExecSetOoO {
             $InternalMessage = $Request.body.InternalMessage
             $ExternalMessage = $Request.body.ExternalMessage
         }
-        $StartTime = $Request.body.StartTime
-        $EndTime = $Request.body.EndTime
-    
+        #if starttime and endtime are a number, they are unix timestamps and need to be converted to datetime, otherwise just use them.
+        $StartTime = if ($Request.body.StartTime -match '^\d+$') { [DateTimeOffset]::FromUnixTimeSeconds([int]$Request.body.StartTime).DateTime } else { $Request.body.StartTime }
+        $EndTime = if ($Request.body.EndTime -match '^\d+$') { [DateTimeOffset]::FromUnixTimeSeconds([int]$Request.body.EndTime).DateTime } else { $Request.body.EndTime }
+
         $Results = try {
-            if ($Request.Body.AutoReplyState -ne 'Scheduled') {
-                Set-CIPPOutOfOffice -userid $Request.body.user -tenantFilter $TenantFilter -APIName $APINAME -ExecutingUser $request.headers.'x-ms-client-principal' -InternalMessage $InternalMessage -ExternalMessage $ExternalMessage -State $Request.Body.AutoReplyState
+            if ($Request.Body.AutoReplyState.value -ne 'Scheduled') {
+                Set-CIPPOutOfOffice -userid $Username -tenantFilter $TenantFilter -APIName $APINAME -ExecutingUser $request.headers.'X-MS-CLIENT-PRINCIPAL' -InternalMessage $InternalMessage -ExternalMessage $ExternalMessage -State $Request.Body.AutoReplyState.value
             } else {
-                Set-CIPPOutOfOffice -userid $Request.body.user -tenantFilter $TenantFilter -APIName $APINAME -ExecutingUser $request.headers.'x-ms-client-principal' -InternalMessage $InternalMessage -ExternalMessage $ExternalMessage -StartTime $StartTime -EndTime $EndTime -State $Request.Body.AutoReplyState
+                Set-CIPPOutOfOffice -userid $Username -tenantFilter $TenantFilter -APIName $APINAME -ExecutingUser $request.headers.'X-MS-CLIENT-PRINCIPAL' -InternalMessage $InternalMessage -ExternalMessage $ExternalMessage -StartTime $StartTime -EndTime $EndTime -State $Request.Body.AutoReplyState.value
             }
         } catch {
             "Could not add out of office message for $($username). Error: $($_.Exception.Message)"
