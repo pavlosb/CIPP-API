@@ -1,16 +1,12 @@
-using namespace System.Net
-
 Function Invoke-ListAppsRepository {
     <#
     .FUNCTIONALITY
-    Entrypoint
+        Entrypoint,AnyTenant
+    .ROLE
+        Endpoint.Application.Read
     #>
     [CmdletBinding()]
     param($Request, $TriggerMetadata)
-
-    $APIName = $TriggerMetadata.FunctionName
-    Write-LogMessage -user $request.headers.'x-ms-client-principal' -API $APINAME -message 'Accessed this API' -Sev 'Debug'
-
     $Search = $Request.Body.Search
     $Repository = $Request.Body.Repository
     $Packages = @()
@@ -39,7 +35,7 @@ Function Invoke-ListAppsRepository {
                         description     = $RepoPackage.summary.'#text'
                         customRepo      = $Repository
                         created         = Get-Date -Date $RepoPackage.properties.Created.'#text' -Format 'MM/dd/yyyy HH:mm:ss'
-                    }  
+                    }
                 }
             } else {
                 $IsError = $true
@@ -61,7 +57,7 @@ Function Invoke-ListAppsRepository {
         IsError = $IsError
     }
 
-    Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
+    return ([HttpResponseContext]@{
             StatusCode = [HttpStatusCode]::OK
             Body       = $PackageSearch
         })
