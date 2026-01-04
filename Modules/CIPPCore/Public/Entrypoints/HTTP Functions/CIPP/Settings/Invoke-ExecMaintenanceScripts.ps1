@@ -1,15 +1,14 @@
-using namespace System.Net
-
 Function Invoke-ExecMaintenanceScripts {
     <#
     .FUNCTIONALITY
-    Entrypoint
+        Entrypoint
+    .ROLE
+        CIPP.AppSettings.Read
     #>
     [CmdletBinding()]
     param($Request, $TriggerMetadata)
 
-    $APIName = $TriggerMetadata.FunctionName
-    Write-LogMessage -user $request.headers.'x-ms-client-principal' -API $APINAME -message 'Accessed this API' -Sev 'Debug'
+    $APIName = $Request.Params.CIPPEndpoint
     try {
         $GraphToken = Get-GraphToken -returnRefresh $true
         $AccessTokenDetails = Read-JwtAccessDetails -Token $GraphToken.access_token
@@ -17,8 +16,8 @@ Function Invoke-ExecMaintenanceScripts {
         $ReplacementStrings = @{
             '##TENANTID##'      = $env:TenantID
             '##RESOURCEGROUP##' = $env:WEBSITE_RESOURCE_GROUP
-            '##FUNCTIONAPP##'   = $env:WEBSITE_SITE_NAME 
-            '##SUBSCRIPTION##'  = (($env:WEBSITE_OWNER_NAME).split('+') | Select-Object -First 1)
+            '##FUNCTIONAPP##'   = $env:WEBSITE_SITE_NAME
+            '##SUBSCRIPTION##'  = Get-CIPPAzFunctionAppSubId
             '##TOKENIP##'       = $AccessTokenDetails.IPAddress
         }
     } catch { Write-Host $_.Exception.Message }
@@ -65,12 +64,11 @@ Function Invoke-ExecMaintenanceScripts {
             }
         }
     } catch {
-        Write-LogMessage -user $request.headers.'x-ms-client-principal' -API $APINAME -tenant $($tenantfilter) -message "Failed to retrieve maintenance scripts. Error: $($_.Exception.Message)" -Sev 'Error'
+        Write-LogMessage -headers $Request.Headers -API $APINAME -tenant $($tenantfilter) -message "Failed to retrieve maintenance scripts. Error: $($_.Exception.Message)" -Sev 'Error'
         $Body = @{Status = "Failed to retrieve maintenance scripts $($_.Exception.Message)" }
     }
 
-    # Associate values to output bindings by calling 'Push-OutputBinding'.
-    Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
+    return ([HttpResponseContext]@{
             StatusCode = [HttpStatusCode]::OK
             Body       = $Body
         })
