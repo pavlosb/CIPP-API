@@ -1,20 +1,13 @@
-using namespace System.Net
-
 Function Invoke-ListGDAPRoles {
     <#
     .FUNCTIONALITY
-    Entrypoint
+        Entrypoint,AnyTenant
+    .ROLE
+        Tenant.Relationship.Read
     #>
     [CmdletBinding()]
     param($Request, $TriggerMetadata)
-
-    $APIName = $TriggerMetadata.FunctionName
-    Write-LogMessage -user $request.headers.'x-ms-client-principal' -API $APINAME -message 'Accessed this API' -Sev 'Debug'
-
-
-    # Write to the Azure Functions log stream.
-    Write-Host 'PowerShell HTTP trigger function processed a request.'
-    $Table = Get-CIPPTable -TableName 'GDAPRoles' 
+    $Table = Get-CIPPTable -TableName 'GDAPRoles'
     $Groups = Get-CIPPAzDataTableEntity @Table
 
     $MappedGroups = foreach ($Group in $Groups) {
@@ -26,8 +19,7 @@ Function Invoke-ListGDAPRoles {
         }
     }
 
-    # Associate values to output bindings by calling 'Push-OutputBinding'.
-    Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
+    return ([HttpResponseContext]@{
             StatusCode = [HttpStatusCode]::OK
             Body       = @($MappedGroups)
         })
