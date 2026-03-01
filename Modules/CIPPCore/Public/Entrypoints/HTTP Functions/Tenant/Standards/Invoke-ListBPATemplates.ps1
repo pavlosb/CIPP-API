@@ -1,37 +1,46 @@
-using namespace System.Net
-
 Function Invoke-ListBPATemplates {
     <#
     .FUNCTIONALITY
-    Entrypoint
+        Entrypoint,AnyTenant
+    .ROLE
+        Tenant.BestPracticeAnalyser.Read
     #>
     [CmdletBinding()]
     param($Request, $TriggerMetadata)
+    $Table = Get-CippTable -tablename 'templates'
 
-    $APIName = $TriggerMetadata.FunctionName
-    Write-LogMessage -user $request.headers.'x-ms-client-principal' -API $APINAME -message 'Accessed this API' -Sev 'Debug'
+    $Templates = Get-ChildItem 'Config\*.BPATemplate.json' | ForEach-Object {
+        $TemplateJson = Get-Content $_ | ConvertFrom-Json | ConvertTo-Json -Compress -Depth 10
+        $Entity = @{
+            JSON         = "$TemplateJson"
+            RowKey       = "$($_.name)"
+            PartitionKey = 'BPATemplate'
+            GUID         = "$($_.name)"
+        }
+        Add-CIPPAzDataTableEntity @Table -Entity $Entity -Force
+    }
 
-    Write-Host 'PowerShell HTTP trigger function processed a request.'
-    Write-Host $Request.query.id
-
-    $Templates = Get-ChildItem 'Config\*.BPATemplate.json'
+    $Filter = "PartitionKey eq 'BPATemplate'"
+    $Templates = Get-CIPPAzDataTableEntity @Table -Filter $Filter
 
     if ($Request.Query.RawJson) {
-        $Templates = $Templates | ForEach-Object {
-            $(Get-Content $_) | ConvertFrom-Json
+        foreach ($Template in $Templates) {
+            $Template.JSON = $Template.JSON -replace '"parameters":', '"Parameters":'
         }
+        $Templates = $Templates.JSON | ConvertFrom-Json | Sort-Object Name
     } else {
         $Templates = $Templates | ForEach-Object {
-            $Template = $(Get-Content $_) | ConvertFrom-Json
+            $TemplateJson = $_.JSON -replace '"parameters":', '"Parameters":'
+            $Template = $TemplateJson | ConvertFrom-Json
             @{
+                GUID  = $_.GUID
                 Data  = $Template.fields
                 Name  = $Template.Name
                 Style = $Template.Style
             }
-        }
+        } | Sort-Object Name
     }
-    # Associate values to output bindings by calling 'Push-OutputBinding'.
-    Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
+    return ([HttpResponseContext]@{
             StatusCode = [HttpStatusCode]::OK
             Body       = ($Templates | ConvertTo-Json -Depth 10)
         })

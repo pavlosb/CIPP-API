@@ -4,7 +4,9 @@ using namespace System.Net
 Function Invoke-DomainAnalyser_List {
     <#
     .FUNCTIONALITY
-    Entrypoint
+        Entrypoint,AnyTenant
+    .ROLE
+        Tenant.DomainAnalyser.Read
     #>
     [CmdletBinding()]
     param($Request, $TriggerMetadata)
@@ -19,7 +21,7 @@ Function Invoke-DomainAnalyser_List {
     try {
         # Extract json from table results
         $Results = foreach ($DomainAnalyserResult in (Get-CIPPAzDataTableEntity @DomainTable).DomainAnalyser) {
-            try { 
+            try {
                 if (![string]::IsNullOrEmpty($DomainAnalyserResult)) {
                     $Object = $DomainAnalyserResult | ConvertFrom-Json -ErrorAction SilentlyContinue
                     $Object
@@ -31,8 +33,7 @@ Function Invoke-DomainAnalyser_List {
     }
 
 
-    # Associate values to output bindings by calling 'Push-OutputBinding'.
-    Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
+    return ([HttpResponseContext]@{
             StatusCode = [HttpStatusCode]::OK
             Body       = @($Results)
         })
