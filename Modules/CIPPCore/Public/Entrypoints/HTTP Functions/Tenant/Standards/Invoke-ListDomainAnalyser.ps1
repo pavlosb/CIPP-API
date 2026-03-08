@@ -1,18 +1,19 @@
 
-using namespace System.Net
-
 Function Invoke-ListDomainAnalyser {
     <#
     .FUNCTIONALITY
-    Entrypoint
+        Entrypoint
+    .ROLE
+        Tenant.DomainAnalyser.Read
     #>
     [CmdletBinding()]
     param($Request, $TriggerMetadata)
+    # Interact with query parameters or the body of the request.
+    $TenantFilter = $Request.Query.tenantFilter
 
-    $Results = Get-CIPPDomainAnalyser -TenantFilter $Request.query.tenantFilter
+    $Results = Get-CIPPDomainAnalyser -TenantFilter $TenantFilter
 
-    # Associate values to output bindings by calling 'Push-OutputBinding'.
-    Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
+    return ([HttpResponseContext]@{
             StatusCode = [HttpStatusCode]::OK
             Body       = @($Results)
         })
