@@ -1,10 +1,18 @@
 function Update-CippQueueEntry {
-    Param(
+    <#
+    .FUNCTIONALITY
+        Internal
+    #>
+    param(
         [Parameter(Mandatory = $true)]
         $RowKey,
         $Status,
-        $Name
+        $Name,
+        $TotalTasks,
+        [switch]$IncrementTotalTasks
     )
+
+    if ($env:CIPPNG -eq 'true') { return }
 
     $CippQueue = Get-CippTable -TableName CippQueue
 
@@ -18,7 +26,16 @@ function Update-CippQueueEntry {
             if ($Name) {
                 $QueueEntry.Name = $Name
             }
-            Update-AzDataTableEntity @CippQueue -Entity $QueueEntry
+            if ($TotalTasks) {
+                if ($IncrementTotalTasks) {
+                    # Increment the existing total
+                    $QueueEntry.TotalTasks = [int]$QueueEntry.TotalTasks + [int]$TotalTasks
+                } else {
+                    # Set the total directly
+                    $QueueEntry.TotalTasks = $TotalTasks
+                }
+            }
+            Add-CIPPAzDataTableEntity @CippQueue -Entity $QueueEntry -Force
             $QueueEntry
         } else {
             return $false
