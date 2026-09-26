@@ -1,11 +1,14 @@
 function New-CippQueueEntry {
+    <#
+    .FUNCTIONALITY
+        Internal
+    #>
     Param(
-        $Name,
-        $Link,
-        $Reference
+        [string]$Name,
+        [string]$Link,
+        [string]$Reference,
+        [int]$TotalTasks = 1
     )
-
-    $CippQueue = Get-CippTable -TableName CippQueue
 
     $QueueEntry = @{
         PartitionKey = 'CippQueue'
@@ -14,9 +17,16 @@ function New-CippQueueEntry {
         Link         = $Link
         Reference    = $Reference
         Status       = 'Queued'
+        TotalTasks   = $TotalTasks
     }
-    $CippQueue.Entity = $QueueEntry
 
+    if ($env:CIPPNG -eq 'true') {
+        [Craft.Services.QueueStatusBridge]::RegisterQueueMetadata($QueueEntry.RowKey, $Name, $Link, $Reference)
+        return $QueueEntry
+    }
+
+    $CippQueue = Get-CippTable -TableName CippQueue
+    $CippQueue.Entity = $QueueEntry
     Add-CIPPAzDataTableEntity @CippQueue
 
     $QueueEntry
